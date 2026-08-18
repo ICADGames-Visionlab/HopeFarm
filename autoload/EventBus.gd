@@ -2,28 +2,28 @@
 # Motivação: centraliza o roteamento de eventos sem virar um God Object, delegando os sinais
 # para objetos de domínio separados. O bus não guarda estado e não contém lógica.
 #
-# ESTADO ATUAL: nenhum domínio registrado. Domínios nascem junto com o sistema que produz os
-# fatos — criar eventos antes disso seria adivinhar features.
-#
-# Para adicionar um domínio, são duas edições:
-#   1. crie res://events/domains/<Nome>Events.gd com "class_name <Nome>Events extends Node",
-#      contendo apenas sinais tipados e comentados;
-#   2. declare a variável tipada abaixo e registre-a em _ready(), no formato:
-#
-#          var inventory: InventoryEvents
-#
-#          func _ready() -> void:
-#              inventory = _register_domain(InventoryEvents.new(), &"inventory") as InventoryEvents
-#
-# A partir daí o acesso é EventBus.inventory.<evento>, e a instrumentação encontra o domínio
-# sozinha. O guia completo está em docs/event_bus.md.
+# Para adicionar um domínio, são duas edições: criar res://events/domains/<Nome>Events.gd com
+# "class_name <Nome>Events extends Node" e registrá-lo abaixo, no mesmo formato dos existentes.
+# O guia completo está em docs/event_bus.md.
 extends Node
+
+# Cada domínio é um Node filho para aparecer na árvore remota do depurador, o que permite
+# inspecionar as conexões em runtime com ferramentas como Signal Lens.
+var production: ProductionEvents
+var inventory: InventoryEvents
+var economy: EconomyEvents
+var world: WorldEvents
+var ui: UIEvents
 
 var _logger: EventBusLogger
 
 
 func _ready() -> void:
-	# Os domínios são registrados aqui, antes da instrumentação, para que o logger os encontre.
+	production = _register_domain(ProductionEvents.new(), &"production") as ProductionEvents
+	inventory = _register_domain(InventoryEvents.new(), &"inventory") as InventoryEvents
+	economy = _register_domain(EconomyEvents.new(), &"economy") as EconomyEvents
+	world = _register_domain(WorldEvents.new(), &"world") as WorldEvents
+	ui = _register_domain(UIEvents.new(), &"ui") as UIEvents
 
 	if OS.has_feature("editor") or OS.is_debug_build():
 		# [DEBUG] Instrumentação de eventos: não existe em build de release.

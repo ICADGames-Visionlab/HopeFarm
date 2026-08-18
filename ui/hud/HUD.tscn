@@ -1,0 +1,27 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/hud/HUDController.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Stats" type="VBoxContainer" parent="."]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 112.0
+grow_horizontal = 0
+
+[node name="GoldLabel" type="Label" parent="Stats"]
+layout_mode = 2
+horizontal_alignment = 2
+
+[node name="DayLabel" type="Label" parent="Stats"]
+layout_mode = 2
+horizontal_alignment = 2
+
+[node name="LastItemLabel" type="Label" parent="Stats"]
+layout_mode = 2
+horizontal_alignment = 2

@@ -1,0 +1,4 @@
+keys,en,pt_BR
+hud_gold,"Gold: {gold}","Ouro: {gold}"
+hud_day,"Day {day}","Dia {day}"
+hud_last_item,"Received: {item} x{amount}","Recebido: {item} x{amount}"

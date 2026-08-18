@@ -1,0 +1,73 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/dev/EventBusPlayground.gd" id="1_playground"]
+[ext_resource type="Script" path="res://systems/world/WorldClock.gd" id="2_world_clock"]
+[ext_resource type="Script" path="res://systems/economy/Wallet.gd" id="3_wallet"]
+[ext_resource type="Script" path="res://systems/inventory/InventorySystem.gd" id="4_inventory"]
+[ext_resource type="Script" path="res://systems/quest/QuestSystem.gd" id="5_quest"]
+[ext_resource type="Script" path="res://systems/audio/AudioDirector.gd" id="6_audio"]
+[ext_resource type="PackedScene" path="res://systems/production/ProductionSource.tscn" id="7_production_source"]
+[ext_resource type="PackedScene" path="res://ui/hud/HUD.tscn" id="8_hud"]
+
+[node name="EventBusPlayground" type="Node2D"]
+script = ExtResource("1_playground")
+
+[node name="WorldClock" type="Node" parent="."]
+script = ExtResource("2_world_clock")
+day_duration_seconds = 8.0
+
+[node name="Wallet" type="Node" parent="."]
+script = ExtResource("3_wallet")
+
+[node name="InventorySystem" type="Node" parent="."]
+script = ExtResource("4_inventory")
+
+[node name="QuestSystem" type="Node" parent="."]
+script = ExtResource("5_quest")
+
+[node name="AudioDirector" type="Node" parent="."]
+script = ExtResource("6_audio")
+
+[node name="ProductionSources" type="Node2D" parent="."]
+position = Vector2(446, 267)
+
+[node name="Source1" parent="ProductionSources" instance=ExtResource("7_production_source")]
+source_id = 1
+
+[node name="Source2" parent="ProductionSources" instance=ExtResource("7_production_source")]
+position = Vector2(140, 0)
+source_id = 2
+
+[node name="Source3" parent="ProductionSources" instance=ExtResource("7_production_source")]
+position = Vector2(280, 0)
+source_id = 3
+
+[node name="HUD" parent="." instance=ExtResource("8_hud")]
+
+[node name="Controls" type="CanvasLayer" parent="."]
+
+[node name="Buttons" type="VBoxContainer" parent="Controls"]
+offset_left = 450.0
+offset_top = 390.0
+offset_right = 714.0
+offset_bottom = 570.0
+
+[node name="StartButton" type="Button" parent="Controls/Buttons"]
+layout_mode = 2
+text = "Iniciar produção"
+
+[node name="CollectButton" type="Button" parent="Controls/Buttons"]
+layout_mode = 2
+text = "Coletar"
+
+[node name="SkipDayButton" type="Button" parent="Controls/Buttons"]
+layout_mode = 2
+text = "Avançar dia"
+
+[node name="SellButton" type="Button" parent="Controls/Buttons"]
+layout_mode = 2
+text = "Vender 1 item"
+
+[node name="SaveButton" type="Button" parent="Controls/Buttons"]
+layout_mode = 2
+text = "Salvar (comando sem dono)"

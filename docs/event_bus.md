@@ -2,9 +2,10 @@
 
 Documentação da feature: o que é, por que é assim, e como trabalhar com ela.
 
-> **Estado atual:** o projeto tem a infraestrutura do bus, mas **nenhum domínio de evento** ainda.
-> Domínios nascem junto com o sistema que produz os fatos. Os exemplos abaixo usam um domínio hipotético
-> `inventory` para ilustrar o padrão — ele ainda não existe no projeto.
+> **Esta branch (`2.1(DEBUG)-teste-event-bus`) carrega uma camada de validação** — seis eventos, cinco
+> sistemas mínimos, uma cena de playground e um verificador de fluxo. Ela existe para exercitar o bus,
+> ensinar o padrão e provar que a arquitetura funciona; **não é design de gameplay**. Os domínios reais
+> nascem junto com os sistemas reais.
 
 ---
 
@@ -57,6 +58,28 @@ Se nenhuma se aplica, **não use o bus**:
 | Broadcast para N instâncias iguais (todos os inimigos) | `get_tree().call_group()` |
 | Precisa de retorno, ou a ordem importa | Chamada direta |
 
+## Eventos existentes
+
+São **seis** — e essa é a lição principal desta branch: o bus tem exatamente os eventos que alguém
+escuta, nem um a mais. Cada um foi mantido porque ilustra uma coisa diferente.
+
+| Evento | Domínio | O que ele ensina |
+| --- | --- | --- |
+| `production_collected` | `production` | **Fan-out**: dois domínios reagem ao mesmo fato sem se conhecerem. Payload em objeto (6 campos) |
+| `day_started` | `world` | Maior fan-out da validação: **três** ouvintes de domínios diferentes. Parâmetro simples tipado |
+| `night_started` | `world` | Evento **sem payload**: o fato basta |
+| `item_added` | `inventory` | A **cadeia de dois saltos** (`production_collected → item_added`), que é o limite |
+| `gold_changed` | `economy` | Padrão de **mudança de valor**: valor novo **e** delta |
+| `save_requested` | `ui` | **Comando sem dono**: o contra-exemplo, que dispara o alerta do logger |
+
+Repare no que **não** existe: não há `production_started`, `item_removed` nem `quest_completed`, embora os
+sistemas façam essas coisas. Ninguém reage a elas, então o evento não existe. Ele nasce no dia em que
+aparecer o primeiro ouvinte — e não antes, porque o custo de remover um evento cresce com o número de
+listeners.
+
+Detalhes de cada um (payload, emissor, ouvintes, frequência) em
+[`event_catalog.md`](event_catalog.md). **Leia o catálogo antes de criar um evento.**
+
 ---
 
 ## Criar um domínio
@@ -65,32 +88,32 @@ Um domínio agrupa os eventos de um módulo. Ele só deve nascer quando existir 
 fatos, com pelo menos 3 eventos previstos — criar eventos antes disso é adivinhar feature, e o custo de
 renomear ou remover um evento cresce com o número de listeners.
 
-**1. Crie o arquivo** `res://events/domains/InventoryEvents.gd`. Só sinais, comentários e a declaração da
+**1. Crie o arquivo** `res://events/domains/CraftingEvents.gd`. Só sinais, comentários e a declaração da
 classe: nenhuma `var`, nenhuma `func` (o checador reprova).
 
 ```gdscript
-# InventoryEvents.gd — Eventos do domínio de inventário (entrada e saída de itens).
-# Regra: apenas o InventorySystem emite estes sinais; qualquer sistema pode ouvir.
-class_name InventoryEvents
+# CraftingEvents.gd — Eventos do domínio de fabricação.
+# Regra: apenas a CraftingStation emite estes sinais; qualquer sistema pode ouvir.
+class_name CraftingEvents
 extends Node
 
-# Emitido após um item entrar no inventário, com o total resultante já consolidado.
-# Emissor: InventorySystem. Ouvintes: HUD, Quest, Audio.
-signal item_added(item_id: StringName, amount: int, resulting_total: int)
+# Emitido quando uma receita entra na fila de fabricação de uma bancada.
+# Emissor: CraftingStation. Ouvintes: HUD, Quest, Audio.
+signal recipe_queued(station_id: int, recipe_id: StringName)
 
-# Emitido quando uma tentativa de adicionar item é recusada (sem espaço, item inválido).
-# Emissor: InventorySystem. Ouvintes: HUD (feedback), Audio.
-signal item_add_rejected(item_id: StringName, reason: StringName)
+# Emitido quando a fabricação é recusada (falta insumo, bancada ocupada).
+# Emissor: CraftingStation. Ouvintes: HUD (feedback), Audio.
+signal recipe_rejected(recipe_id: StringName, reason: StringName)
 ```
 
 **2. Registre no bus** — duas linhas em `autoload/EventBus.gd`:
 
 ```gdscript
-var inventory: InventoryEvents
+var crafting: CraftingEvents
 
 
 func _ready() -> void:
-	inventory = _register_domain(InventoryEvents.new(), &"inventory") as InventoryEvents
+	crafting = _register_domain(CraftingEvents.new(), &"crafting") as CraftingEvents
 	...
 ```
 
@@ -99,7 +122,7 @@ O `as <Tipo>` não é enfeite: `_register_domain()` devolve `Node`, e GDScript n
 **3. Regenere o catálogo:** abra `tools/GenerateEventCatalog.gd` no editor e rode com **File > Run**
 (`Ctrl+Shift+X`). Preencha as colunas manuais — `TODO` reprova no checador.
 
-**4. Rode o checador** (comando no fim deste documento).
+**4. Rode o checador** (comando mais abaixo).
 
 Nada mais precisa ser tocado: a instrumentação varre os domínios sozinha e o overlay passa a mostrar os
 eventos novos automaticamente.
@@ -133,8 +156,8 @@ func _ready() -> void:
 
 
 # Atualiza o contador do HUD quando qualquer item entra no inventário.
-func _on_item_added(item_id: StringName, amount: int, resulting_total: int) -> void:
-	_refresh_slot(item_id, resulting_total)
+func _on_item_added(event: ItemTransactionEvent) -> void:
+	_refresh_slot(event.item_id, event.resulting_total)
 ```
 
 - **Precisa do valor atual, não só das mudanças?** Consulte o dono do estado no `_ready()`. O bus só entrega
@@ -162,10 +185,10 @@ eventos, e não deve haver enquanto não aparecer um problema concreto de ordena
 
 ```gdscript
 # Adiciona itens ao inventário e publica o resultado consolidado.
-func add_item(item_id: StringName, amount: int) -> void:
+func add_item(item_id: StringName, amount: int, source: StringName) -> void:
 	var total: int = get_amount(item_id) + amount
 	_items[item_id] = total
-	EventBus.inventory.item_added.emit(item_id, amount, total)
+	EventBus.inventory.item_added.emit(ItemTransactionEvent.new(item_id, amount, source, total))
 	print("[Inventory] - Item \"%s\" x%d adicionado (total %d)" % [item_id, amount, total])
 ```
 
@@ -180,7 +203,7 @@ conectaram. Se o anúncio inicial for necessário, difira com `emit.call_deferre
 | Campos | Forma | Exemplo |
 | --- | --- | --- |
 | Nenhum | `signal night_started()` | O fato basta |
-| Até 3 | `signal item_add_rejected(item_id: StringName, reason: StringName)` | Parâmetros tipados |
+| Até 3 | `signal gold_changed(new_value: int, delta: int)` | Parâmetros tipados |
 | 4 ou mais | `signal item_added(event: ItemTransactionEvent)` | Classe de payload em `events/payloads/` |
 
 Classe de payload: `extends RefCounted` (nunca `Resource`, salvo se precisar ser serializado), campos
@@ -234,13 +257,42 @@ O logger tem flags exportadas para investigação: `log_every_emission` (loga to
 Se um evento "não chega": confira nesta ordem — (1) o listener conectou em `_ready()`? (2) o nó está na
 árvore? (3) o emissor rodou? O overlay responde as três em segundos.
 
+## Camada de validação (DEBUG)
+
+Existe para exercitar o bus de ponta a ponta. Nenhuma peça dela é design de gameplay.
+
+**`scenes/dev/EventBusPlayground.tscn`** — cena manual com três fontes de produção, relógio de mundo,
+inventário, missões, carteira, áudio e HUD. Botões: iniciar produção, coletar, avançar dia, vender e um
+`Salvar` que emite um comando **sem dono de propósito**, para você ver o alerta do logger acontecendo.
+
+**`tools/SmokeTestEventBus.tscn`** — verificador headless que monta a mesma fatia em memória, dirige o
+fluxo por frames e confere os efeitos que só podem ter acontecido através do bus:
+
+| # | Verificação |
+| --- | --- |
+| V1 | O início da produção muda o estado das três fontes |
+| V2 | Duas viradas de dia concluem a produção |
+| V3 | A coleta alimenta o inventário sem que os sistemas se conheçam |
+| V4 | A mesma coleta avança a missão de coleta |
+| V5 | A missão de dias avança só nas viradas, não no dia inicial |
+| V6 | A venda remove do inventário e credita a carteira |
+| V7 | Cada coleta gera exatamente um `item_added` (cascata ≤ 2) |
+
+Ele é uma **cena**, não um script de `--script`: scripts de MainLoop são compilados antes do registro dos
+Autoloads, e naquele modo o identificador global `EventBus` não existe. Vale para qualquer ferramenta
+futura que precise tocar o bus.
+
 ## Verificar antes do PR
 
 ```bash
 godot --headless --path . --script res://tools/CheckEventBudgets.gd
 ```
 
-Sai com código 1 se houver erro; avisos não reprovam. O que ele confere:
+```bash
+godot --headless --path . res://tools/SmokeTestEventBus.tscn
+```
+
+Ambos saem com código 1 em caso de erro. O checador confere:
 
 | # | Checagem | Falha |
 | --- | --- | --- |
@@ -281,8 +333,9 @@ Sai com código 1 se houver erro; avisos não reprovam. O que ele confere:
 ## Armadilhas
 
 **Cadeia longa.** Um evento pode gerar no máximo mais um. `production_collected → item_added` é o limite;
-`production_collected → quest_completed → gold_changed` já é demais — nesse caso, aplique o efeito por
-chamada direta no dono do estado.
+`production_collected → item_added → gold_changed` já seria demais — nesse caso, aplique o efeito por
+chamada direta no dono do estado. (É por isso que a carteira não reage a nenhum evento: quem vende
+chama `add_gold()` direto.)
 
 **Depender da ordem dos listeners.** Se `A` precisa rodar antes de `B`, os dois são o mesmo sistema, ou `B`
 deve reagir a um segundo fato que `A` emite.
@@ -291,7 +344,7 @@ deve reagir a um segundo fato que `A` emite.
 previsível. Use método nomeado.
 
 **Evento por frame ou por entidade.** 500 entidades não emitem 500 eventos. O sistema processa em laço e
-emite um só, agregado (`things_completed(ids: PackedInt32Array)`).
+emite um só, agregado (`sources_completed(source_ids: PackedInt32Array)`).
 
 **UI conectada em massa.** Se 12 widgets querem `gold_changed`, conecte **um** controlador de HUD ao bus e
 distribua internamente por chamada direta.
@@ -310,18 +363,19 @@ o dono no `_ready()`; o bus entrega só os deltas.
 
 ```
 autoload/EventBus.gd              # fachada: registra domínios e sobe a instrumentação
-events/domains/                   # um arquivo por domínio (vazio hoje)
-events/payloads/                  # classes de payload (vazio hoje)
+events/domains/                   # um arquivo por domínio
+events/payloads/                  # classes de payload
 events/debug/EventBusLogger.gd    # instrumentação: contadores, alertas, histórico
 events/debug/EventBusOverlay.*    # painel F3
 tools/GenerateEventCatalog.gd     # regenera o catálogo (File > Run no editor)
 tools/CheckEventBudgets.gd        # checagens C1–C9 (headless)
+tools/SmokeTestEventBus.*         # verificador de fluxo (headless)  [DEBUG]
+systems/                          # sistemas de exemplo da camada de validação  [DEBUG]
+ui/hud/                           # HUD de exemplo  [DEBUG]
+scenes/dev/                       # cena de playground  [DEBUG]
+localization/strings.csv          # chaves usadas pelo HUD de exemplo  [DEBUG]
 docs/event_catalog.md             # catálogo de eventos
 ```
 
-As pastas `domains/` e `payloads/` ficam versionadas mesmo vazias (com `.gitkeep`): as ferramentas as abrem
-diretamente e falham com erro se elas não existirem.
-
 **Pendências conhecidas:** falta medir (a) se a desconexão automática cobre lambdas e objetos `RefCounted`,
 e (b) o custo real de emissão com 1/8/32 listeners no hardware alvo, para calibrar o orçamento de frame.
-Ambas dependem de existir pelo menos um domínio real.
